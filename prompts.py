@@ -182,13 +182,33 @@ def build_prompt(
     service_type: str = "our service",
     custom_prompt: str = None,
 ) -> str:
-    """Interpolate lead/business details into the prompt template."""
+    """Interpolate lead/business details into the prompt template with dynamic greeting."""
     template = custom_prompt if custom_prompt else DEFAULT_SYSTEM_PROMPT
+    
+    lead_name_clean = lead_name.strip() if lead_name else ""
+    business_name_clean = business_name.strip() if business_name else ""
+    
+    # ── Lead Personalization Fix ──────────────────────────────────────────────
+    if lead_name_clean and lead_name_clean.lower() != "there":
+        # Person name exists
+        greeting_instruction = f'"Hey {lead_name_clean}! This is Olivia from Graviton Edge — is this {business_name_clean}?"'
+        fallback_used = "Person name + Business name"
+    else:
+        # Person name is missing, use business name fallback naturally
+        greeting_instruction = f'"Hey! Is this {business_name_clean}?"'
+        fallback_used = "Business name only (Person name missing/fallback)"
+        
+    print(f"📋 Loaded lead data: lead_name='{lead_name_clean}', business_name='{business_name_clean}', service_type='{service_type}'")
+    print(f"🎯 Final greeting variables: {greeting_instruction} (Fallback used: {fallback_used})")
+
+    # Replace the hardcoded Step 1 instruction in the template before formatting
+    template = template.replace('"Hey! Is this {business_name}?"', greeting_instruction)
+    
     try:
         return template.format(
-            lead_name=lead_name,
-            business_name=business_name,
-            service_type=service_type,
+            lead_name=lead_name_clean or "there",
+            business_name=business_name_clean or "our company",
+            service_type=service_type or "our service",
             phone="the phone number",
             confirmed_date="the date",
             confirmed_time="the time",

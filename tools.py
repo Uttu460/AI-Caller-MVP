@@ -81,19 +81,13 @@ class AppointmentTools(llm.ToolContext):
     @llm.function_tool
     async def end_call(self, outcome: str, reason: str = "") -> str:
         """
-        End the call and log the outcome. ALWAYS call this before the call ends.
+        End the call and register the outcome. Disconnects and triggers SIP shutdown.
         outcome: 'booked' | 'not_interested' | 'wrong_number' | 'voicemail' | 'no_answer' | 'callback_requested'
         reason: brief description
         """
-        duration = int(time.time() - self._call_start_time)
-        try:
-            await log_call(
-                phone_number=self.phone_number or "unknown",
-                lead_name=self.lead_name, outcome=outcome, reason=reason,
-                duration_seconds=duration, recording_url=self.recording_url,
-            )
-        except Exception as exc:
-            logger.error("Failed to log call: %s", exc)
+        self.final_outcome = outcome
+        self.final_reason = reason
+        logger.info(f"end_call tool registered outcome: {outcome} | reason: {reason}")
         try:
             await self.ctx.room.disconnect()
         except Exception:

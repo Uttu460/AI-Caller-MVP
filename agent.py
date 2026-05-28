@@ -145,11 +145,14 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     try:
         if ctx.job.metadata:
             meta = json.loads(ctx.job.metadata)
-            phone_number = meta.get("phone_number") or meta.get("phone")
-            lead_name = meta.get("lead_name", lead_name)
-            business_name = meta.get("business_name", business_name)
-            service_type = meta.get("service_type", service_type)
+            
+            # Key-agnostic parsing with robust key variants
+            phone_number = meta.get("phone_number") or meta.get("phone") or phone_number
+            lead_name = meta.get("lead_name") or meta.get("name") or meta.get("contact_name") or meta.get("first_name") or lead_name
+            business_name = meta.get("business_name") or meta.get("business") or meta.get("company_name") or meta.get("company") or business_name
+            service_type = meta.get("service_type") or meta.get("service") or meta.get("niche") or meta.get("industry") or service_type
             custom_prompt = meta.get("system_prompt")
+            
             # Overrides from metadata
             if meta.get("voice_override"):
                 os.environ["GEMINI_TTS_VOICE"] = meta["voice_override"]
@@ -170,6 +173,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         service_type=service_type,
         custom_prompt=custom_prompt
     )
+    logger.info(f"📋 Loaded lead data: lead_name='{lead_name}', business_name='{business_name}', service_type='{service_type}'")
+    logger.info("🎯 Lead variables injected into system prompt before first greeting.")
 
     # Tool context
     tool_ctx = AppointmentTools(ctx=ctx, phone_number=phone_number, lead_name=lead_name)
@@ -227,13 +232,22 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     await session.start(**_session_kwargs)
     await _log("info", "Agent session started — AI ready, generating greeting")
 
-    # ── Timings & Silence Tracking ───────────────────────────────────────────
+    # ── Timings, Silence Tracking & Call State ───────────────────────────────
     import time
     last_activity_time = time.time()
     user_speech_start_time = 0.0
     user_speech_end_time = 0.0
     thinking_start_time = 0.0
     speaking_start_time = 0.0
+    
+    # State flags to avoid false silence hangups
+    is_user_speaking = False
+    is_agent_speaking = False
+    is_agent_thinking = False
+    
+    # Text-based timestamps for detailed logs
+    last_user_speak_time_log = "Never"
+    last_ai_speak_time_log = "Never"
 
     async def handle_rejection_hangup():
         await _log("info", "Rejection phrase detected — triggering polite exit & immediate hangup")
@@ -278,11 +292,25 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         nonlocal last_activity_time
         while True:
             await asyncio.sleep(1.0)
+            
+            # Reset activity time if anyone is speaking or thinking (prevent false silence hangups)
+            if is_user_speaking or is_agent_speaking or is_agent_thinking:
+                last_activity_time = time.time()
+                continue
+                
             elapsed = time.time() - last_activity_time
-            if elapsed > 8.0:
-                await _log("warning", f"Silence detected for {int(elapsed)}s (>8s) — hanging up call")
+            # High quality conversational pacing: 30 seconds threshold for true mutual passive silence
+            if elapsed > 30.0:
+                why_triggered = "Absolute mutual inactivity from both sides (no active speech, audio, or response generation)"
+                logger.warning(f"🚨 Silence timeout triggered! elapsed={elapsed:.1f}s (>30.0s)")
+                logger.warning(f"   • Silence Source: Mutual passive silence")
+                logger.warning(f"   • Last User Speech Timestamp: {last_user_speak_time_log}")
+                logger.warning(f"   • Last AI Speech Timestamp: {last_ai_speak_time_log}")
+                logger.warning(f"   • Why Hangup Triggered: {why_triggered}")
+                
+                await _log("warning", f"Silence detected for {int(elapsed)}s (>30s) — hanging up call")
                 try:
-                    await tool_ctx.end_call(outcome="no_answer", reason="8s silence timeout")
+                    await tool_ctx.end_call(outcome="no_answer", reason="30s passive silence timeout")
                 except Exception:
                     pass
                 break
@@ -293,29 +321,37 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     # ── Register Session Events ───────────────────────────────────────────────
     @session.on("user_state_changed")
     def on_user_state_changed(ev):
-        nonlocal user_speech_start_time, user_speech_end_time, last_activity_time
+        nonlocal user_speech_start_time, user_speech_end_time, last_activity_time, is_user_speaking, last_user_speak_time_log
         last_activity_time = time.time()
         
         state_str = str(ev.new_state).lower()
         if "speaking" in state_str:
+            is_user_speaking = True
             user_speech_start_time = time.time()
-            logger.info("🎙️ User started speaking")
+            last_user_speak_time_log = time.strftime("%H:%M:%S")
+            logger.info(f"🎙️ User started speaking at {last_user_speak_time_log}")
         elif "listening" in state_str:
+            is_user_speaking = False
             user_speech_end_time = time.time()
             logger.info("🎙️ User stopped speaking")
 
     @session.on("agent_state_changed")
     def on_agent_state_changed(ev):
-        nonlocal thinking_start_time, speaking_start_time, last_activity_time
+        nonlocal thinking_start_time, speaking_start_time, last_activity_time, is_agent_thinking, is_agent_speaking, last_ai_speak_time_log
         last_activity_time = time.time()
         
         state_str = str(ev.new_state).lower()
         if "thinking" in state_str:
+            is_agent_thinking = True
+            is_agent_speaking = False
             thinking_start_time = time.time()
             logger.info("🧠 Agent state: THINKING (Gemini generation started)")
         elif "speaking" in state_str:
+            is_agent_thinking = False
+            is_agent_speaking = True
             speaking_start_time = time.time()
-            logger.info("🗣️ Agent state: SPEAKING (TTS playout started)")
+            last_ai_speak_time_log = time.strftime("%H:%M:%S")
+            logger.info(f"🗣️ Agent state: SPEAKING (TTS playout started at {last_ai_speak_time_log})")
             
             # Compute latencies
             now = time.time()
@@ -327,6 +363,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                 logger.info(f"⏱️ Total Response Latency (end of user speech to playout): {total_latency:.2f}s")
                 
         elif "listening" in state_str or "idle" in state_str:
+            is_agent_thinking = False
+            is_agent_speaking = False
             logger.info("👂 Agent state: LISTENING / IDLE")
             # If booking is successful and agent finishes speaking, hang up immediately!
             if getattr(tool_ctx, "booking_successful", False):
@@ -419,6 +457,31 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             await _log("warning", "Call reached 1-hour safety timeout — shutting down")
 
         await _log("info", f"SIP participant disconnected — ending session for {phone_number}")
+
+        # Real Call State Tracking - Sync database call logs ONLY on verified SIP participant disconnect
+        final_outcome = getattr(tool_ctx, "final_outcome", "not_interested")
+        final_reason = getattr(tool_ctx, "final_reason", "Prospect hung up during conversation")
+
+        # Override outcome if the booking was successful
+        if getattr(tool_ctx, "booking_successful", False):
+            final_outcome = "booked"
+            final_reason = "demo booked successfully"
+
+        duration = int(time.time() - tool_ctx._call_start_time)
+        try:
+            from db import log_call
+            await log_call(
+                phone_number=phone_number or "unknown",
+                lead_name=lead_name,
+                outcome=final_outcome,
+                reason=final_reason,
+                duration_seconds=duration,
+                recording_url=tool_ctx.recording_url,
+            )
+            await _log("info", f"Successfully synced backend call logs. Verified SIP State: {final_outcome}")
+        except Exception as exc:
+            await _log("error", f"Failed to log call on disconnect: {exc}")
+
         await session.aclose()
     else:
         _done = asyncio.Event()
