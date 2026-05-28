@@ -244,10 +244,95 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     is_user_speaking = False
     is_agent_speaking = False
     is_agent_thinking = False
+    is_terminated = False
     
     # Text-based timestamps for detailed logs
     last_user_speak_time_log = "Never"
     last_ai_speak_time_log = "Never"
+
+    _disconnect_event = asyncio.Event()
+
+    # ── Safe Centralized Call Termination Sequence ─────────────────────────────
+    async def terminate_call_sequence(outcome: str, reason: str):
+        nonlocal is_terminated
+        if is_terminated:
+            return
+        is_terminated = True
+        
+        await _log("info", f"🎬 Starting call termination sequence — outcome={outcome} | reason={reason}")
+        
+        # 1. Wait for any active agent speech/playout to finish
+        while is_agent_speaking:
+            await asyncio.sleep(0.1)
+            
+        await asyncio.sleep(0.5) # natural transition pause
+        
+        tool_ctx.final_outcome = outcome
+        tool_ctx.final_reason = reason
+        
+        # 2. Explicitly terminate/remove the SIP participant from LiveKit
+        if phone_number:
+            _sip_identity = f"sip_{phone_number}"
+            await _log("info", f"📡 Attempting SIP removal: {_sip_identity} from room {ctx.room.name}")
+            try:
+                from livekit.api import RoomParticipantIdentity
+                await ctx.api.room.remove_participant(
+                    RoomParticipantIdentity(
+                        room=ctx.room.name,
+                        identity=_sip_identity
+                    )
+                )
+                await _log("info", "✅ SIP removal request submitted successfully")
+            except Exception as e:
+                await _log("error", f"❌ SIP removal request failed: {e}")
+                
+            # 3. Wait for verified SIP participant disconnect event to fire (PSTN disconnect confirmed)
+            await _log("info", "⏳ Waiting for verified PSTN disconnect confirmation...")
+            try:
+                await asyncio.wait_for(_disconnect_event.wait(), timeout=10.0)
+                await _log("info", "💚 PSTN disconnect confirmed: SIP participant has left the room")
+            except asyncio.TimeoutError:
+                await _log("warning", "⚠️ PSTN disconnect wait timed out — forcing cleanup")
+        else:
+            await _log("info", "No phone number — skipping SIP removal")
+
+        # 4. THEN update backend/call logs, close AgentSession and disconnect LiveKit room
+        await _log("info", "🧹 Executing final session, room and database cleanup...")
+        
+        # Sync database call logs
+        duration = int(time.time() - tool_ctx._call_start_time)
+        try:
+            from db import log_call
+            await log_call(
+                phone_number=phone_number or "unknown",
+                lead_name=lead_name,
+                outcome=outcome,
+                reason=reason,
+                duration_seconds=duration,
+                recording_url=tool_ctx.recording_url,
+            )
+            await _log("info", f"Successfully synced backend call logs. Verified SIP State: {outcome}")
+        except Exception as exc:
+            await _log("error", f"❌ Failed to log call on disconnect: {exc}")
+
+        # Close session and disconnect room
+        try:
+            await session.aclose()
+        except Exception:
+            pass
+        try:
+            await ctx.room.disconnect()
+        except Exception:
+            pass
+        try:
+            ctx.shutdown()
+        except Exception:
+            pass
+
+    # Register safe termination callback on tool context
+    def on_terminate(out, reas):
+        asyncio.create_task(terminate_call_sequence(out, reas))
+    tool_ctx.on_terminate_callback = on_terminate
 
     async def handle_rejection_hangup():
         await _log("info", "Rejection phrase detected — triggering polite exit & immediate hangup")
@@ -255,20 +340,19 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             # 1. Interrupt any current speech
             session.interrupt()
             
-            # 2. Say a polite goodbye
+            # 2. Say a polite goodbye FIRST (while session and room are active and healthy)
+            await _log("info", "📣 Starting goodbye playback...")
             handle = session.say("No worries, sorry for the trouble. Have a great day!", allow_interruptions=False)
             
             # 3. Wait for the goodbye to finish playing
             await handle.wait_for_playout()
+            await _log("info", "📣 Goodbye playback finished")
         except Exception as e:
             await _log("warning", f"Polite goodbye playout failed: {e}")
             await asyncio.sleep(2.0)
             
-        # 4. End the call cleanly
-        try:
-            await tool_ctx.end_call(outcome="not_interested", reason="Prospect requested do not call or hung up")
-        except Exception:
-            pass
+        # 4. Trigger safe termination sequence
+        await terminate_call_sequence(outcome="not_interested", reason="Prospect requested do not call or hung up")
 
     async def handle_session_error(ev):
         error_msg = getattr(ev.error, "message", str(ev.error))
@@ -283,7 +367,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             except Exception:
                 await asyncio.sleep(2.0)
             try:
-                await tool_ctx.end_call(outcome="no_answer", reason=f"Unrecoverable session error: {error_msg}")
+                await terminate_call_sequence(outcome="no_answer", reason=f"Unrecoverable session error: {error_msg}")
             except Exception:
                 pass
 
@@ -310,7 +394,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                 
                 await _log("warning", f"Silence detected for {int(elapsed)}s (>30s) — hanging up call")
                 try:
-                    await tool_ctx.end_call(outcome="no_answer", reason="30s passive silence timeout")
+                    await terminate_call_sequence(outcome="no_answer", reason="30s passive silence timeout")
                 except Exception:
                     pass
                 break
@@ -368,7 +452,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             logger.info("👂 Agent state: LISTENING / IDLE")
             # If booking is successful and agent finishes speaking, hang up immediately!
             if getattr(tool_ctx, "booking_successful", False):
-                asyncio.create_task(tool_ctx.end_call(outcome="booked", reason="demo booked successfully"))
+                asyncio.create_task(terminate_call_sequence(outcome="booked", reason="demo booked successfully"))
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(ev):
@@ -440,7 +524,6 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     # We watch participant_disconnected for the specific SIP identity.
     if phone_number:
         _sip_identity = f"sip_{phone_number}"
-        _disconnect_event = asyncio.Event()
 
         def _on_participant_disconnected(participant: rtc.RemoteParticipant):
             if participant.identity == _sip_identity:
@@ -456,33 +539,10 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         except asyncio.TimeoutError:
             await _log("warning", "Call reached 1-hour safety timeout — shutting down")
 
-        await _log("info", f"SIP participant disconnected — ending session for {phone_number}")
-
-        # Real Call State Tracking - Sync database call logs ONLY on verified SIP participant disconnect
-        final_outcome = getattr(tool_ctx, "final_outcome", "not_interested")
-        final_reason = getattr(tool_ctx, "final_reason", "Prospect hung up during conversation")
-
-        # Override outcome if the booking was successful
-        if getattr(tool_ctx, "booking_successful", False):
-            final_outcome = "booked"
-            final_reason = "demo booked successfully"
-
-        duration = int(time.time() - tool_ctx._call_start_time)
-        try:
-            from db import log_call
-            await log_call(
-                phone_number=phone_number or "unknown",
-                lead_name=lead_name,
-                outcome=final_outcome,
-                reason=final_reason,
-                duration_seconds=duration,
-                recording_url=tool_ctx.recording_url,
-            )
-            await _log("info", f"Successfully synced backend call logs. Verified SIP State: {final_outcome}")
-        except Exception as exc:
-            await _log("error", f"Failed to log call on disconnect: {exc}")
-
-        await session.aclose()
+        # If terminate_call_sequence was not triggered yet (e.g., user hung up their phone first), trigger it now
+        if not is_terminated:
+            await _log("info", "SIP participant hung up first — triggering safe termination flow")
+            await terminate_call_sequence(outcome="not_interested", reason="Prospect hung up during conversation")
     else:
         _done = asyncio.Event()
         ctx.room.on("disconnected", lambda: _done.set())
