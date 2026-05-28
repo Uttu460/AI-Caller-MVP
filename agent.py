@@ -17,9 +17,10 @@ import asyncio
 from dotenv import load_dotenv
 
 from livekit import agents, api, rtc
-from livekit.agents import Agent, RoomInputOptions
+from livekit.agents import Agent, RoomInputOptions, AgentSession
 from livekit.plugins import noise_cancellation
-from livekit.plugins.google import beta as google_multimodal
+from livekit.plugins.google.realtime import RealtimeModel
+import livekit.plugins.silero as silero
 
 # Detect if RoomOptions is available or deprecated
 _HAS_ROOM_OPTIONS = False
@@ -75,12 +76,12 @@ class OutboundAssistant(Agent):
     def __init__(self, instructions: str) -> None:
         super().__init__(
             instructions=instructions,
-            tools=[],  # Tools are passed directly to MultimodalAgentSession, keep Agent tools empty
+            tools=[],  # Tools are passed directly to AgentSession, keep Agent tools empty
         )
 
 
-def _build_session(tools: list, system_prompt: str) -> google_multimodal.MultimodalAgentSession:
-    """Build a MultimodalAgentSession with all 3 silence-prevention configurations."""
+def _build_session(tools: list, system_prompt: str) -> AgentSession:
+    """Build a RealtimeModel AgentSession with all 3 silence-prevention configurations."""
     api_key = os.getenv("GOOGLE_API_KEY", "")
     model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-live-preview")
     voice = os.getenv("GEMINI_TTS_VOICE", "Aoede")
@@ -103,18 +104,23 @@ def _build_session(tools: list, system_prompt: str) -> google_multimodal.Multimo
         ),
     )
 
-    # Create the Multimodal agent session
-    agent = google_multimodal.MultimodalAgent(
+    # Create the RealtimeModel
+    realtime_model = RealtimeModel(
         api_key=api_key,
         model=model,
         voice=voice,
-        system_instruction=system_prompt,
-        tools=tools,
+        instructions=system_prompt,
         session_resumption=session_resumption,
         context_window_compression=context_window_compression,
         realtime_input_config=realtime_input_config,
     )
-    return google_multimodal.MultimodalAgentSession(agent=agent)
+    
+    vad = silero.VAD.load()
+    return AgentSession(
+        llm=realtime_model,
+        vad=vad,
+        tools=tools,
+    )
 
 
 async def entrypoint(ctx: agents.JobContext) -> None:
