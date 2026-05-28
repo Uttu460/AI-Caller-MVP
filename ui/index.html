@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OutboundAI — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+/* Dark theme CSS variables */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d0d0d; --card: #161616; --border: #252525;
+  --accent: #00ff88; --accent2: #00ccff; --danger: #ff4d4d; --warn: #ffaa00;
+  --muted: #5a5a5a; --text: #e0e0e0; --text2: #aaa;
+  --mono: 'Courier New', monospace; --sans: 'Segoe UI', system-ui, sans-serif; --r: 8px;
+}
+body {
+  background: var(--bg); color: var(--text); font-family: var(--sans);
+  min-height: 100vh; line-height: 1.5; font-size: 14px;
+}
+header {
+  border-bottom: 1px solid var(--border); padding: 1rem 2rem;
+  display: flex; justify-content: space-between; align-items: center; background: #080808;
+}
+header h1 { font-size: 1.5rem; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+header h1 span { color: var(--accent); }
+.nav-tabs {
+  display: flex; flex-wrap: wrap; background: #111; border-bottom: 1px solid var(--border); padding: 0.5rem; gap: 0.25rem;
+}
+.tab-btn {
+  background: transparent; color: var(--text2); border: none; padding: 0.5rem 1rem;
+  cursor: pointer; border-radius: var(--r); font-weight: 500; font-size: 0.9rem; transition: all 0.2s;
+}
+.tab-btn:hover { background: #1a1a1a; color: #fff; }
+.tab-btn.active { background: var(--accent); color: #000; font-weight: 600; }
+
+main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* KPI Grid */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.kpi-card { background: var(--card); border: 1px solid var(--border); padding: 1.5rem; border-radius: var(--r); position: relative; overflow: hidden; }
+.kpi-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent2); }
+.kpi-card.booked::before { background: var(--accent); }
+.kpi-card.danger::before { background: var(--danger); }
+.kpi-val { font-size: 2rem; font-weight: 700; color: #fff; margin-top: 0.5rem; }
+.kpi-lbl { font-size: 0.85rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Charts container */
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+.chart-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 1.5rem; }
+.chart-card h3 { font-size: 1.1rem; color: #fff; margin-bottom: 1rem; }
+.chart-wrap { height: 250px; position: relative; }
+
+/* Grid blocks */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+.block { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 1.5rem; margin-bottom: 1.5rem; }
+.block h2 { font-size: 1.2rem; color: #fff; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+
+/* Forms & Inputs */
+.f-group { margin-bottom: 1.25rem; }
+.f-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text2); }
+input, select, textarea {
+  width: 100%; padding: 0.75rem; background: #1c1a1c; border: 1px solid var(--border);
+  color: #fff; border-radius: var(--r); font-family: var(--sans); font-size: 0.95rem; transition: border-color 0.2s;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input[type="checkbox"] { width: auto; margin-right: 0.5rem; display: inline-block; vertical-align: middle; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  padding: 0.75rem 1.5rem; border-radius: var(--r); font-weight: 600; cursor: pointer; border: none;
+  font-size: 0.95rem; transition: opacity 0.2s, transform 0.1s;
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--accent); color: #000; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-sec { background: #252525; color: #fff; border: 1px solid var(--border); }
+.btn-sec:hover { background: #303030; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { opacity: 0.9; }
+.btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: #111; color: #fff; font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.05em; }
+tr:hover td { background: #1e1e1e; }
+
+/* Badges */
+.badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+.badge-success { background: rgba(0, 255, 136, 0.15); color: var(--accent); }
+.badge-info { background: rgba(0, 204, 255, 0.15); color: var(--accent2); }
+.badge-danger { background: rgba(255, 77, 77, 0.15); color: var(--danger); }
+.badge-warn { background: rgba(255, 170, 0, 0.15); color: var(--warn); }
+
+/* Toast */
+#toast-container { position: fixed; bottom: 2rem; right: 2rem; z-index: 1000; display: flex; flex-direction: column; gap: 0.5rem; }
+.toast {
+  background: var(--card); border: 1px solid var(--border); padding: 1rem 1.5rem; border-radius: var(--r);
+  color: #fff; font-weight: 500; min-width: 250px; display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5); animation: slideIn 0.3s ease-out; border-left: 4px solid var(--accent);
+}
+.toast.err { border-left-color: var(--danger); }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* Live logs viewer */
+.log-viewer {
+  background: #050505; color: #00ff66; font-family: var(--mono); font-size: 0.85rem; padding: 1rem;
+  border-radius: var(--r); height: 400px; overflow-y: auto; border: 1px solid var(--border); line-height: 1.4;
+}
+.log-entry { margin-bottom: 0.25rem; display: flex; gap: 1rem; }
+.log-ts { color: #888; }
+.log-lvl { font-weight: bold; min-width: 50px; text-transform: uppercase; }
+.log-entry.error { color: var(--danger); }
+.log-entry.warning { color: var(--warn); }
+.log-entry.info { color: var(--accent2); }
+
+/* Config chips */
+.chip-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+.chip { background: #1a1a1a; border: 1px solid var(--border); padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+.chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.chip-dot.active { background: var(--accent); }
+
+/* Loader/Progress */
+.progress-container { width: 100%; background: #222; border-radius: var(--r); height: 8px; overflow: hidden; display: none; margin-top: 1rem; }
+.progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+
+/* Inline notes editor */
+.notes-edit { cursor: pointer; border-bottom: 1px dashed var(--muted); padding-bottom: 2px; }
+.notes-edit:hover { color: #fff; border-bottom-color: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>OutboundAI <span>★ Live Voice Platform</span></h1>
+  <div id="livekit-indicator" class="chip"><div class="chip-dot active"></div><span>System Live</span></div>
+</header>
+
+<nav class="nav-tabs">
+  <button class="tab-btn active" onclick="switchTab('stats')">📊 Stats</button>
+  <button class="tab-btn" onclick="switchTab('single-call')">📞 Single Call</button>
+  <button class="tab-btn" onclick="switchTab('batch-call')">📋 Batch Call</button>
+  <button class="tab-btn" onclick="switchTab('campaigns')">🚀 Campaigns</button>
+  <button class="tab-btn" onclick="switchTab('agents')">🤖 Agents</button>
+  <button class="tab-btn" onclick="switchTab('ai-prompt')">✏️ AI Prompt</button>
+  <button class="tab-btn" onclick="switchTab('appointments')">📅 Appointments</button>
+  <button class="tab-btn" onclick="switchTab('call-logs')">📝 Call Logs</button>
+  <button class="tab-btn" onclick="switchTab('crm')">👥 CRM</button>
+  <button class="tab-btn" onclick="switchTab('settings')">⚙️ Settings</button>
+  <button class="tab-btn" onclick="switchTab('logs')">📋 Logs</button>
+  <button class="tab-btn" onclick="switchTab('setup')">🔧 Setup</button>
+</nav>
+
+<main>
+
+  <!-- 📊 STATS PANEL -->
+  <div id="panel-stats" class="tab-panel active">
+    <div class="chip-grid" id="stats-live-config">
+      <!-- Loaded dynamically -->
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-lbl">Total Calls</div><div class="kpi-val" id="kpi-total">0</div></div>
+      <div class="kpi-card booked"><div class="kpi-lbl">Booked Demo</div><div class="kpi-val" id="kpi-booked">0</div></div>
+      <div class="kpi-card danger"><div class="kpi-lbl">Not Interested</div><div class="kpi-val" id="kpi-ni">0</div></div>
+      <div class="kpi-card"><div class="kpi-lbl">Booking Rate</div><div class="kpi-val" id="kpi-rate">0%</div></div>
+      <div class="kpi-card"><div class="kpi-lbl">Avg Duration</div><div class="kpi-val" id="kpi-duration">0s</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Outcomes</h3><div class="chart-wrap"><canvas id="chart-outcomes"></canvas></div></div>
+      <div class="chart-card"><h3>14-Day Call Volume</h3><div class="chart-wrap"><canvas id="chart-timeline"></canvas></div></div>
+      <div class="chart-card"><h3>Duration by Outcome</h3><div class="chart-wrap"><canvas id="chart-duration"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- 📞 SINGLE CALL PANEL -->
+  <div id="panel-single-call" class="tab-panel">
+    <div class="two-col">
+      <div class="block">
+        <h2>Launch AI Outbound Call</h2>
+        <form id="call-form" onsubmit="dispatchSingleCall(event)">
+          <div class="f-group">
+            <label>Phone Number (E.164 format)</label>
+            <input type="text" id="sc-phone" placeholder="+919876543210" required />
+          </div>
+          <div class="f-group">
+            <label>Lead Name</label>
+            <input type="text" id="sc-lead-name" placeholder="John Doe" />
+          </div>
+          <div class="f-group">
+            <label>Business Name</label>
+            <input type="text" id="sc-business" placeholder="Acme Corp" />
+          </div>
+          <div class="f-group">
+            <label>Service Type</label>
+            <input type="text" id="sc-service" placeholder="AI Receptionist" />
+          </div>
+          <div class="f-group">
+            <label>Agent Profile Override</label>
+            <select id="sc-agent-profile">
+              <option value="">(Default Global System Prompt)</option>
+            </select>
+          </div>
+          <div class="f-group">
+            <label><input type="checkbox" id="sc-toggle-custom" onchange="$('sc-custom-prompt-wrap').style.display = this.checked ? 'block' : 'none'" /> Custom System Prompt Override</label>
+          </div>
+          <div class="f-group" id="sc-custom-prompt-wrap" style="display:none">
+            <label>Custom System Prompt</label>
+            <textarea id="sc-custom-prompt" rows="6" placeholder="Paste custom prompt here..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">⚡ Dial and Connect Agent</button>
+        </form>
+      </div>
+      <div class="block">
+        <h2>Single Call Instructions</h2>
+        <p>This panel allows you to dispatch a single real-time Gemini voice AI call directly to any phone number using the configured SIP trunk.</p>
+        <br />
+        <p><strong>Step 1:</strong> Enter a valid phone number starting with '+' and country code.</p>
+        <p><strong>Step 2:</strong> Provide the lead information. These variables are interpolated into the prompt dynamically.</p>
+        <p><strong>Step 3:</strong> Select a custom Agent Profile if you want a specific voice, LLM model, or tool capability.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📋 BATCH CALL PANEL -->
+  <div id="panel-batch-call" class="tab-panel">
+    <div class="block">
+      <h2>Batch Call Campaign (CSV Upload)</h2>
+      <div class="two-col">
+        <div>
+          <div class="f-group">
+            <label>Select Agent Profile</label>
+            <select id="bc-agent-profile">
+              <option value="">(Default Global Profile)</option>
+            </select>
+          </div>
+          <div class="f-group">
+            <label>Call Delay between dispatches (seconds)</label>
+            <input type="number" id="bc-delay" value="5" min="1" />
+          </div>
+          <div class="f-group">
+            <label>Upload CSV File</label>
+            <input type="file" id="bc-csv-file" accept=".csv" />
+          </div>
+          <button onclick="parseCSV('bc')" class="btn btn-sec">Parse CSV</button>
+          <button onclick="startBatchCall()" id="bc-start-btn" class="btn btn-primary" style="display:none">🚀 Start Batch Call</button>
+          <div class="progress-container" id="bc-progress-container">
+            <div class="progress-bar" id="bc-progress-bar"></div>
+          </div>
+        </div>
+        <div>
+          <h4>CSV format example:</h4>
+          <pre style="background:#1a1a1a; padding:1rem; border-radius:var(--r); font-family:var(--mono); margin-bottom:1rem">
+phone,lead_name,business_name,service_type
++919876543210,Rohan,Rohan Tea Stall,AI Receptionist
++1234567890,Alice,Acme Bakery,Custom Virtual Assistant
+          </pre>
+        </div>
+      </div>
+      <div id="bc-preview-wrap" style="display:none; margin-top:2rem">
+        <h3>CSV Preview (<span id="bc-count">0</span> leads found)</h3>
+        <table id="bc-preview-table">
+          <thead><tr><th>Phone</th><th>Name</th><th>Business</th><th>Service</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🚀 CAMPAIGNS PANEL -->
+  <div id="panel-campaigns" class="tab-panel">
+    <div class="block">
+      <h2>Create New Calling Campaign</h2>
+      <div class="two-col">
+        <div>
+          <div class="f-group">
+            <label>Campaign Name</label>
+            <input type="text" id="camp-name" placeholder="E.g., Bangalore Spa Outbound" required />
+          </div>
+          <div class="f-group">
+            <label>Schedule Type</label>
+            <select id="camp-schedule-type" onchange="toggleCampTime(this.value)">
+              <option value="once">Run Immediately (Once)</option>
+              <option value="daily">Daily Cron Schedule</option>
+              <option value="weekdays">Weekdays Cron (Mon-Fri)</option>
+            </select>
+          </div>
+          <div class="f-group" id="camp-time-wrap" style="display:none">
+            <label>Schedule Time (24h format)</label>
+            <input type="time" id="camp-schedule-time" value="09:00" />
+          </div>
+          <div class="f-group">
+            <label>Call Delay (seconds)</label>
+            <input type="number" id="camp-delay" value="5" min="2" />
+          </div>
+        </div>
+        <div>
+          <div class="f-group">
+            <label>Agent Profile</label>
+            <select id="camp-agent-profile">
+              <option value="">(Default Global Prompt)</option>
+            </select>
+          </div>
+          <div class="f-group">
+            <label>Upload Contacts CSV</label>
+            <input type="file" id="camp-csv-file" accept=".csv" />
+          </div>
+          <button onclick="parseCSV('camp')" class="btn btn-sec">Parse CSV</button>
+          <button onclick="createCampaign()" id="camp-submit-btn" class="btn btn-primary" style="display:none">🚀 Create Campaign</button>
+        </div>
+      </div>
+      <div id="camp-preview-wrap" style="display:none; margin-top:1.5rem">
+        <h3>Campaign Contacts Preview (<span id="camp-count">0</span> contacts parsed)</h3>
+        <table id="camp-preview-table">
+          <thead><tr><th>Phone</th><th>Name</th><th>Business</th><th>Service</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>Active / Scheduled Campaigns</h2>
+      <table id="campaigns-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Profile</th>
+            <th>Dispatched</th>
+            <th>Failed</th>
+            <th>Last Run</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Dynamically populated -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 🤖 AGENTS PANEL -->
+  <div id="panel-agents" class="tab-panel">
+    <div class="two-col">
+      <div class="block">
+        <h2 id="agent-form-title">Create Agent Profile</h2>
+        <form id="agent-profile-form" onsubmit="saveAgentProfile(event)">
+          <input type="hidden" id="ap-id" />
+          <div class="f-group">
+            <label>Profile Name</label>
+            <input type="text" id="ap-name" placeholder="Olivia - Real Estate Specialist" required />
+          </div>
+          <div class="f-group">
+            <label>LLM Model</label>
+            <select id="ap-model">
+              <option value="gemini-3.1-flash-live-preview" selected>gemini-3.1-flash-live-preview (Gemini Live preview)</option>
+              <option value="gemini-2.5-flash-native-audio-preview-12-2025">gemini-2.5-flash-native-audio-preview</option>
+            </select>
+          </div>
+          <div class="f-group">
+            <label>Voice Selection</label>
+            <select id="ap-voice">
+              <optgroup label="Female voices">
+                <option value="Aoede">Aoede — warm, expressive ⭐</option>
+                <option value="Achernar">Achernar — soft & clear</option>
+                <option value="Autonoe">Autonoe — natural female</option>
+                <option value="Callirrhoe">Callirrhoe — gentle female</option>
+                <option value="Despina">Despina — bright female</option>
+                <option value="Erinome">Erinome — smooth female</option>
+                <option value="Gacrux">Gacrux — rich female</option>
+                <option value="Kore">Kore — soft, calm</option>
+                <option value="Laomedeia">Laomedeia — light female</option>
+                <option value="Leda">Leda — clear female</option>
+                <option value="Pulcherrima">Pulcherrima — warm female</option>
+                <option value="Sulafat">Sulafat — smooth female</option>
+                <option value="Vindemiatrix">Vindemiatrix — professional female</option>
+                <option value="Zephyr">Zephyr — airy female</option>
+              </optgroup>
+              <optgroup label="Male voices">
+                <option value="Achird">Achird — clear male</option>
+                <option value="Algenib">Algenib — strong male</option>
+                <option value="Algieba">Algieba — rich male</option>
+                <option value="Alnilam">Alnilam — deep male</option>
+                <option value="Charon">Charon — calm, deep</option>
+                <option value="Enceladus">Enceladus — expressive male</option>
+                <option value="Fenrir">Fenrir — confident male</option>
+                <option value="Iapetus">Iapetus — steady male</option>
+                <option value="Orus">Orus — warm male</option>
+                <option value="Perseus">Perseus — clear male</option>
+                <option value="Puck">Puck — bright, energetic</option>
+                <option value="Rasalgethi">Rasalgethi — bold male</option>
+                <option value="Sadachbia">Sadachbia — natural male</option>
+                <option value="Sadaltager">Sadaltager — smooth male</option>
+                <option value="Schedar">Schedar — professional male</option>
+                <option value="Umbriel">Umbriel — deep, calm</option>
+                <option value="Zubenelgenubi">Zubenelgenubi — resonant male</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="f-group">
+            <label>Tool List (Select tools enabled for this profile)</label>
+            <div id="ap-tool-checkboxes" style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; background:#1c1a1c; padding:1rem; border-radius:var(--r); border:1px solid var(--border)">
+              <!-- Loaded Dynamically -->
+            </div>
+          </div>
+          <div class="f-group">
+            <label>System Prompt Template</label>
+            <textarea id="ap-prompt" rows="8" placeholder="Paste custom agent profile system prompt..."></textarea>
+          </div>
+          <div class="f-group">
+            <label><input type="checkbox" id="ap-default" /> Make Default Profile</label>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Agent Profile</button>
+          <button type="button" onclick="resetAgentForm()" class="btn btn-sec">Cancel</button>
+        </form>
+      </div>
+
+      <div class="block">
+        <h2>Created Agent Profiles</h2>
+        <table id="agent-profiles-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Voice</th>
+              <th>Model</th>
+              <th>Tools</th>
+              <th>Default?</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✏️ AI PROMPT PANEL -->
+  <div id="panel-ai-prompt" class="tab-panel">
+    <div class="block">
+      <h2>Global System Prompt (Olivia Template)</h2>
+      <p style="margin-bottom:1rem; color:var(--text2)">This prompt is used as the global fallback system template if no specific agent profile is selected. It definesOlivia's goal, the qualifying stages, hook story, objection handling, and critical CST timezone rules.</p>
+      <div class="f-group">
+        <textarea id="global-prompt-editor" rows="22" style="font-family:var(--mono); font-size:0.85rem; line-height:1.4"></textarea>
+      </div>
+      <div style="display:flex; gap:1rem; align-items:center">
+        <button onclick="savePrompt()" class="btn btn-primary">💾 Save Global Prompt</button>
+        <button onclick="resetPrompt()" class="btn btn-danger">Reset to Spec Defaults</button>
+        <span id="prompt-char-count" style="color:var(--text2); font-size:0.85rem"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📅 APPOINTMENTS PANEL -->
+  <div id="panel-appointments" class="tab-panel">
+    <div class="block">
+      <h2>Booked Demo Appointments</h2>
+      <div class="f-group" style="max-width:300px">
+        <label>Filter by Date</label>
+        <input type="date" id="appt-date-filter" onchange="loadAppointments(this.value)" />
+      </div>
+      <table id="appointments-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Date</th>
+            <th>Time (CST)</th>
+            <th>Service Type</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Dynamically populated -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 📝 CALL LOGS PANEL -->
+  <div id="panel-call-logs" class="tab-panel">
+    <div class="block">
+      <h2>Complete Call History</h2>
+      <table id="calls-table">
+        <thead>
+          <tr>
+            <th>Phone Number</th>
+            <th>Lead Name</th>
+            <th>Outcome</th>
+            <th>Duration</th>
+            <th>Timestamp</th>
+            <th>S3 Recording</th>
+            <th>Notes & Remarks (Click to edit)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Dynamically populated -->
+        </tbody>
+      </table>
+      <div style="margin-top:1.5rem; display:flex; justify-content:space-between" id="calls-pagination">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 👥 CRM PANEL -->
+  <div id="panel-crm" class="tab-panel">
+    <div class="two-col">
+      <div class="block">
+        <h2>Customer Relationship Management (CRM)</h2>
+        <table id="crm-table">
+          <thead>
+            <tr>
+              <th>Lead Name</th>
+              <th>Phone Number</th>
+              <th>Total Calls</th>
+              <th>Booked?</th>
+              <th>Last Contacted</th>
+              <th>Last Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+      <div class="block" id="crm-detail-block" style="display:none">
+        <h2>History for <span id="crm-phone-hdr"></span></h2>
+        <div style="margin-bottom:1.5rem">
+          <h4>Remembered Insights (AI Compressed)</h4>
+          <div id="crm-memories" style="padding:1rem; background:#111; border-radius:var(--r); border:1px solid var(--border); font-family:var(--mono); font-size:0.85rem">
+            <!-- Loader -->
+          </div>
+        </div>
+        <div>
+          <h4>Past Calls Log</h4>
+          <div id="crm-calls-history" style="max-height:300px; overflow-y:auto; border-radius:var(--r); border:1px solid var(--border)">
+            <!-- Table dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚙️ SETTINGS PANEL -->
+  <div id="panel-settings" class="tab-panel">
+    <div class="two-col">
+      <div>
+        <div class="block">
+          <h2>1. LiveKit Cloud Setup</h2>
+          <div class="f-group">
+            <label>LIVEKIT_URL</label>
+            <input type="text" id="set-LIVEKIT_URL" placeholder="wss://my-project.livekit.cloud" />
+          </div>
+          <div class="f-group">
+            <label>LIVEKIT_API_KEY</label>
+            <div style="position:relative">
+              <input type="password" id="set-LIVEKIT_API_KEY" />
+              <button onclick="toggleMask('set-LIVEKIT_API_KEY')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>LIVEKIT_API_SECRET</label>
+            <div style="position:relative">
+              <input type="password" id="set-LIVEKIT_API_SECRET" />
+              <button onclick="toggleMask('set-LIVEKIT_API_SECRET')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <button onclick="saveGroup('livekit')" class="btn btn-primary">Save LiveKit Credentials</button>
+        </div>
+
+        <div class="block">
+          <h2>2. Google Gemini API</h2>
+          <div class="f-group">
+            <label>GOOGLE_API_KEY</label>
+            <div style="position:relative">
+              <input type="password" id="set-GOOGLE_API_KEY" />
+              <button onclick="toggleMask('set-GOOGLE_API_KEY')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>GEMINI_MODEL</label>
+            <select id="set-GEMINI_MODEL">
+              <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview (Sub-100ms Live preview)</option>
+              <option value="gemini-2.5-flash-native-audio-preview-12-2025">gemini-2.5-flash-native-audio-preview</option>
+            </select>
+          </div>
+          <div class="f-group">
+            <label>GEMINI_TTS_VOICE</label>
+            <select id="set-GEMINI_TTS_VOICE">
+              <!-- Loaded below -->
+            </select>
+          </div>
+          <button onclick="saveGroup('gemini')" class="btn btn-primary">Save Gemini Credentials</button>
+        </div>
+
+        <div class="block">
+          <h2>3. S3 Call Recordings</h2>
+          <div class="f-group">
+            <label>S3_ACCESS_KEY_ID</label>
+            <input type="text" id="set-S3_ACCESS_KEY_ID" />
+          </div>
+          <div class="f-group">
+            <label>S3_SECRET_ACCESS_KEY</label>
+            <div style="position:relative">
+              <input type="password" id="set-S3_SECRET_ACCESS_KEY" />
+              <button onclick="toggleMask('set-S3_SECRET_ACCESS_KEY')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>S3_ENDPOINT_URL</label>
+            <input type="text" id="set-S3_ENDPOINT_URL" placeholder="https://..." />
+          </div>
+          <div class="f-group">
+            <label>S3_REGION</label>
+            <input type="text" id="set-S3_REGION" value="ap-northeast-1" />
+          </div>
+          <div class="f-group">
+            <label>S3_BUCKET</label>
+            <input type="text" id="set-S3_BUCKET" value="call-recordings" />
+          </div>
+          <button onclick="saveGroup('s3')" class="btn btn-primary">Save S3 Credentials</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="block">
+          <h2>4. Vobiz SIP Telephony</h2>
+          <div class="f-group">
+            <label>VOBIZ_SIP_DOMAIN</label>
+            <input type="text" id="set-VOBIZ_SIP_DOMAIN" placeholder="vobiz.ai domain" />
+          </div>
+          <div class="f-group">
+            <label>VOBIZ_USERNAME</label>
+            <input type="text" id="set-VOBIZ_USERNAME" />
+          </div>
+          <div class="f-group">
+            <label>VOBIZ_PASSWORD</label>
+            <div style="position:relative">
+              <input type="password" id="set-VOBIZ_PASSWORD" />
+              <button onclick="toggleMask('set-VOBIZ_PASSWORD')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>VOBIZ_OUTBOUND_NUMBER</label>
+            <input type="text" id="set-VOBIZ_OUTBOUND_NUMBER" placeholder="+919876543210" />
+          </div>
+          <div class="f-group">
+            <label>OUTBOUND_TRUNK_ID</label>
+            <input type="text" id="set-OUTBOUND_TRUNK_ID" placeholder="ST_xxxxxxxxxx" />
+          </div>
+          <div class="f-group">
+            <label>DEFAULT_TRANSFER_NUMBER</label>
+            <input type="text" id="set-DEFAULT_TRANSFER_NUMBER" placeholder="+919876543210" />
+          </div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+            <button onclick="saveGroup('vobiz')" class="btn btn-primary">Save Vobiz Settings</button>
+            <button onclick="createSIPTrunk()" class="btn btn-sec">⚡ Create SIP Trunk in LiveKit</button>
+          </div>
+        </div>
+
+        <div class="block">
+          <h2>5. Twilio SMS</h2>
+          <div class="f-group">
+            <label>TWILIO_ACCOUNT_SID</label>
+            <input type="text" id="set-TWILIO_ACCOUNT_SID" />
+          </div>
+          <div class="f-group">
+            <label>TWILIO_AUTH_TOKEN</label>
+            <div style="position:relative">
+              <input type="password" id="set-TWILIO_AUTH_TOKEN" />
+              <button onclick="toggleMask('set-TWILIO_AUTH_TOKEN')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>TWILIO_FROM_NUMBER</label>
+            <input type="text" id="set-TWILIO_FROM_NUMBER" placeholder="+1234567890" />
+          </div>
+          <button onclick="saveGroup('twilio')" class="btn btn-primary">Save Twilio Settings</button>
+        </div>
+
+        <div class="block">
+          <h2>6. Cal.com booking</h2>
+          <div class="f-group">
+            <label>CALCOM_API_KEY</label>
+            <div style="position:relative">
+              <input type="password" id="set-CALCOM_API_KEY" />
+              <button onclick="toggleMask('set-CALCOM_API_KEY')" type="button" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text2); cursor:pointer">👁️</button>
+            </div>
+          </div>
+          <div class="f-group">
+            <label>CALCOM_EVENT_TYPE_ID</label>
+            <input type="text" id="set-CALCOM_EVENT_TYPE_ID" />
+          </div>
+          <div class="f-group">
+            <label>CALCOM_TIMEZONE</label>
+            <input type="text" id="set-CALCOM_TIMEZONE" value="Asia/Kolkata" />
+          </div>
+          <button onclick="saveGroup('calcom')" class="btn btn-primary">Save Cal.com Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📋 LOGS PANEL -->
+  <div id="panel-logs" class="tab-panel">
+    <div class="block">
+      <h2>Live System Event Logs</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:1rem; flex-wrap:wrap">
+        <div style="display:flex; gap:0.5rem">
+          <select id="log-level-filter" onchange="loadLogs()" style="max-width:150px">
+            <option value="">All Levels</option>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+          </select>
+          <select id="log-source-filter" onchange="loadLogs()" style="max-width:150px">
+            <option value="">All Sources</option>
+            <option value="agent">Agent worker</option>
+            <option value="server">FastAPI server</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:0.5rem">
+          <button onclick="loadLogs()" class="btn btn-sec btn-sm">🔄 Refresh</button>
+          <button onclick="toggleLogAuto()" id="btn-log-auto" class="btn btn-sec btn-sm">Pause Auto-Refresh</button>
+          <button onclick="clearLogs()" class="btn btn-danger btn-sm">🗑️ Clear Logs</button>
+        </div>
+      </div>
+      <div class="log-viewer" id="log-container">
+        <!-- Logs loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔧 SETUP PANEL -->
+  <div id="panel-setup" class="tab-panel">
+    <div class="block">
+      <h2>Quick-Start Guide</h2>
+      <p style="margin-bottom:1rem">Follow these steps to fully configure your OutboundAI production platform:</p>
+      <ol style="margin-left:1.5rem; margin-bottom:1.5rem; display:flex; flex-direction:column; gap:0.5rem">
+        <li>Make sure you run <strong>supabase_schema.sql</strong> inside your Supabase dashboard SQL Editor.</li>
+        <li>Go to <strong>⚙️ Settings</strong>, enter your <strong>LiveKit Cloud Credentials</strong>, then click save.</li>
+        <li>Enter your <strong>Google Gemini API Key</strong> (Gemini Live preview models require v1alpha API key).</li>
+        <li>Configure your <strong>Vobiz SIP Telephony</strong> details and click <strong>⚡ Create SIP Trunk in LiveKit</strong>.</li>
+        <li>Customize Olivia's flow in <strong>✏️ AI Prompt</strong> or create customized agent profiles in <strong>🤖 Agents</strong>.</li>
+        <li>Launch test dials from <strong>📞 Single Call</strong>.</li>
+      </ol>
+      <p>Congratulations, your system is fully enterprise-ready and production-tested! 🚀</p>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+// Available tools mapping
+const TOOLS_DEFINITIONS = [
+  { name: 'check_availability', desc: 'Check date/time slots' },
+  { name: 'book_appointment', desc: 'Save bookings to DB' },
+  { name: 'end_call', desc: 'End session and save outcomes' },
+  { name: 'transfer_to_human', desc: 'SIP Refer human transfer' },
+  { name: 'send_sms_confirmation', desc: 'SMS confirmation text' },
+  { name: 'lookup_contact', desc: 'Retrieves call and appointment history' },
+  { name: 'remember_details', desc: 'Learns customer details/objections' },
+  { name: 'book_calcom', desc: 'Cal.com calendar sync' },
+  { name: 'cancel_calcom', desc: 'Cancel Cal.com booking' }
+];
+
+const $ = id => document.getElementById(id);
+const api = (path, opts) => fetch(path, opts).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.statusText) }));
+const apiPost = (path, body) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+const apiPut = (path, body) => api(path, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+const apiPatch = (path, body) => api(path, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+const apiDel  = path => api(path, {method:'DELETE'});
+
+function toast(msg, type='ok') {
+  const container = $('toast-container');
+  const div = document.createElement('div');
+  div.className = `toast ${type === 'err' ? 'err' : ''}`;
+  div.innerHTML = `<span>${msg}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#fff;cursor:pointer;margin-left:1rem">×</button>`;
+  container.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+}
+
+function toggleMask(id) {
+  const el = $(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  $(`panel-${name}`).classList.add('active');
+
+  // Reload data for relevant tabs
+  if (name === 'stats') { loadStats(); loadLiveConfig(); }
+  else if (name === 'campaigns') { loadCampaigns(); }
+  else if (name === 'agents') { loadAgentProfiles(); }
+  else if (name === 'ai-prompt') { loadPrompt(); }
+  else if (name === 'appointments') { loadAppointments(); }
+  else if (name === 'call-logs') { loadCalls(); }
+  else if (name === 'crm') { loadCRM(); }
+  else if (name === 'settings') { loadSettings(); }
+  else if (name === 'logs') { loadLogs(); }
+}
+
+// Global state
+let chartOutcomes = null, chartTimeline = null, chartDuration = null;
+let currentSettings = {};
+let parsedLeads = [];
+let autoRefreshLogs = true;
+let logsInterval = null;
+
+// --- Stats & Charts ---
+async function loadStats() {
+  try {
+    const stats = await api('/api/stats');
+    $('kpi-total').innerText = stats.total_calls;
+    $('kpi-booked').innerText = stats.booked;
+    $('kpi-ni').innerText = stats.not_interested;
+    $('kpi-rate').innerText = stats.booking_rate_percent + '%';
+    $('kpi-duration').innerText = stats.avg_duration_seconds + 's';
+    renderCharts(stats);
+  } catch (err) {
+    console.error('Stats error:', err);
+  }
+}
+
+async function loadLiveConfig() {
+  try {
+    const promptData = await api('/api/prompt');
+    const settings = await api('/api/settings');
+    const wrap = $('stats-live-config');
+    wrap.innerHTML = '';
+    
+    // Render chips
+    const model = settings.GEMINI_MODEL?.value || 'gemini-3.1-flash-live-preview';
+    const voice = settings.GEMINI_TTS_VOICE?.value || 'Aoede';
+    
+    wrap.innerHTML = `
+      <div class="chip"><div class="chip-dot active"></div><span>Model: ${model}</span></div>
+      <div class="chip"><div class="chip-dot active"></div><span>Voice: ${voice}</span></div>
+      <div class="chip"><div class="chip-dot ${promptData.is_custom ? 'active' : ''}"></div><span>Prompt: ${promptData.is_custom ? 'Custom' : 'Olivia Standard'}</span></div>
+      <div class="chip"><div class="chip-dot ${settings.OUTBOUND_TRUNK_ID?.configured ? 'active' : ''}"></div><span>SIP Trunk Setup</span></div>
+    `;
+  } catch (err) {
+    console.error('Live config error:', err);
+  }
+}
+
+function renderCharts(d) {
+  // Outcomes Donut
+  const outcomesKeys = Object.keys(d.outcomes || {});
+  const outcomesVals = Object.values(d.outcomes || {});
+  if (chartOutcomes) chartOutcomes.destroy();
+  chartOutcomes = new Chart($('chart-outcomes'), {
+    type: 'doughnut',
+    data: {
+      labels: outcomesKeys,
+      datasets: [{ data: outcomesVals, backgroundColor: ['#00ff88', '#00ccff', '#ff4d4d', '#ffaa00', '#5a5a5a'] }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa' } } } }
+  });
+
+  // Timeline line
+  const timelineDates = d.timeline.map(x => x.date.substring(5));
+  const timelineCounts = d.timeline.map(x => x.count);
+  if (chartTimeline) chartTimeline.destroy();
+  chartTimeline = new Chart($('chart-timeline'), {
+    type: 'line',
+    data: {
+      labels: timelineDates,
+      datasets: [{ label: 'Calls', data: timelineCounts, borderColor: '#00ccff', tension: 0.2, fill: false }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ticks: { color: '#888' } }, y: { ticks: { color: '#888', stepSize: 1 } } },
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  // Duration Bar
+  const durKeys = Object.keys(d.duration_by_outcome || {});
+  const durVals = Object.values(d.duration_by_outcome || {}).map(v => Math.round(v));
+  if (chartDuration) chartDuration.destroy();
+  chartDuration = new Chart($('chart-duration'), {
+    type: 'bar',
+    data: {
+      labels: durKeys,
+      datasets: [{ label: 'Seconds', data: durVals, backgroundColor: '#ffaa00' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ticks: { color: '#888' } }, y: { ticks: { color: '#888' } } },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+// --- CSV parsing helper ---
+function parseCSV(panel) {
+  const fileInput = $(`${panel}-csv-file`);
+  if (!fileInput.files.length) return toast('Please select a CSV file first', 'err');
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n');
+    const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+    parsedLeads = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const row = lines[i].split(',').map(v => v.trim());
+      const lead = {};
+      headers.forEach((h, idx) => {
+        lead[h] = row[idx];
+      });
+      if (lead.phone) parsedLeads.push(lead);
+    }
+    
+    // Render preview
+    $(`${panel}-count`).innerText = parsedLeads.length;
+    const tbody = $(`${panel}-preview-table`).querySelector('tbody');
+    tbody.innerHTML = '';
+    parsedLeads.slice(0, 10).forEach(l => {
+      tbody.innerHTML += `<tr><td>${l.phone}</td><td>${l.lead_name || ''}</td><td>${l.business_name || ''}</td><td>${l.service_type || ''}</td></tr>`;
+    });
+    $(`${panel}-preview-wrap`).style.display = 'block';
+    $(`${panel}-submit-btn`) && ($(`${panel}-submit-btn`).style.display = 'inline-flex');
+    $(`${panel}-start-btn`) && ($(`${panel}-start-btn`).style.display = 'inline-flex');
+    toast(`Successfully parsed ${parsedLeads.length} leads!`);
+  }
+  reader.readAsText(file);
+}
+
+// --- Single Call ---
+async function dispatchSingleCall(e) {
+  e.preventDefault();
+  const phone = $('sc-phone').value;
+  const lead_name = $('sc-lead-name').value;
+  const business_name = $('sc-business').value;
+  const service_type = $('sc-service').value;
+  const agent_profile_id = $('sc-agent-profile').value || null;
+  const overridePrompt = $('sc-toggle-custom').checked ? $('sc-custom-prompt').value : null;
+
+  try {
+    toast(`Initiating connection to ${phone}...`);
+    const resp = await apiPost('/api/call', {
+      phone, lead_name, business_name, service_type,
+      agent_profile_id, system_prompt: overridePrompt
+    });
+    toast(`Success! Call room ${resp.room} created & dispatched. Check logs.`);
+  } catch (err) {
+    toast(`Dispatch failed: ${err.message || err}`, 'err');
+  }
+}
+
+// --- Batch Call ---
+async function startBatchCall() {
+  if (!parsedLeads.length) return toast('No leads found. Please upload a CSV.', 'err');
+  const delay = parseInt($('bc-delay').value) || 5;
+  const agent_profile_id = $('bc-agent-profile').value || null;
+  const container = $('bc-progress-container');
+  const bar = $('bc-progress-bar');
+  container.style.display = 'block';
+
+  toast(`Starting batch calling campaign of ${parsedLeads.length} leads...`);
+  $('bc-start-btn').disabled = true;
+
+  for (let i = 0; i < parsedLeads.length; i++) {
+    const lead = parsedLeads[i];
+    const pct = Math.round(((i + 1) / parsedLeads.length) * 100);
+    bar.style.width = pct + '%';
+    try {
+      await apiPost('/api/call', {
+        phone: lead.phone,
+        lead_name: lead.lead_name || 'there',
+        business_name: lead.business_name || 'our company',
+        service_type: lead.service_type || 'our service',
+        agent_profile_id
+      });
+      toast(`Dispatched [${i+1}/${parsedLeads.length}]: ${lead.phone}`);
+    } catch (err) {
+      toast(`Failed [${lead.phone}]: ${err.message || err}`, 'err');
+    }
+    if (i < parsedLeads.length - 1) {
+      await new Promise(r => setTimeout(r, delay * 1000));
+    }
+  }
+  toast('Batch call calling sequence complete!');
+  $('bc-start-btn').disabled = false;
+}
+
+// --- Campaigns ---
+function toggleCampTime(v) {
+  $('camp-time-wrap').style.display = (v === 'once') ? 'none' : 'block';
+}
+
+async function createCampaign() {
+  const name = $('camp-name').value;
+  const schedule_type = $('camp-schedule-type').value;
+  const schedule_time = $('camp-schedule-time').value;
+  const call_delay_seconds = parseInt($('camp-delay').value) || 5;
+  const agent_profile_id = $('camp-agent-profile').value || null;
+
+  if (!name) return toast('Campaign name is required', 'err');
+  if (!parsedLeads.length) return toast('Upload a contacts CSV', 'err');
+
+  try {
+    await apiPost('/api/campaigns', {
+      name, contacts: parsedLeads, schedule_type, schedule_time,
+      call_delay_seconds, agent_profile_id
+    });
+    toast('Campaign created and saved successfully!');
+    $('camp-name').value = '';
+    $('camp-preview-wrap').style.display = 'none';
+    $('camp-submit-btn').style.display = 'none';
+    loadCampaigns();
+  } catch (err) {
+    toast(`Error creating campaign: ${err.message || err}`, 'err');
+  }
+}
+
+async function loadCampaigns() {
+  try {
+    const list = await api('/api/campaigns');
+    const tbody = $('campaigns-table').querySelector('tbody');
+    tbody.innerHTML = '';
+    list.forEach(c => {
+      const schedule = c.schedule_type === 'once' ? 'Once (Now)' : `${c.schedule_type} at ${c.schedule_time}`;
+      const statusBadge = c.status === 'active' ? `<span class="badge badge-success">Active</span>` :
+                          c.status === 'paused' ? `<span class="badge badge-warn">Paused</span>` :
+                          `<span class="badge badge-info">Completed</span>`;
+      const lastRun = c.last_run_at ? new Date(c.last_run_at).toLocaleString() : 'Never';
+      
+      const playPauseAction = c.status === 'active' ? 
+        `<button class="btn btn-sec btn-sm" onclick="toggleCampaignStatus('${c.id}', 'paused')">⏸️ Pause</button>` :
+        c.status === 'paused' ? `<button class="btn btn-sec btn-sm" onclick="toggleCampaignStatus('${c.id}', 'active')">▶️ Resume</button>` : '';
+
+      tbody.innerHTML += `
+        <tr>
+          <td><strong>${c.name}</strong></td>
+          <td>${schedule}</td>
+          <td>${c.agent_profile_id || 'Global Default'}</td>
+          <td>${c.total_dispatched}</td>
+          <td>${c.total_failed}</td>
+          <td>${lastRun}</td>
+          <td>${statusBadge}</td>
+          <td>
+            <div style="display:flex; gap:0.25rem">
+              ${playPauseAction}
+              <button class="btn btn-primary btn-sm" onclick="runCampaign('${c.id}', '${c.name}')">⚡ Trigger Now</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteCampaign('${c.id}')">🗑️ Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  } catch (err) {
+    console.error('Error load campaigns:', err);
+  }
+}
+
+window.toggleCampaignStatus = async (id, status) => {
+  try {
+    await apiPatch(`/api/campaigns/${id}/status`, { status });
+    toast(`Campaign status updated to ${status}`);
+    loadCampaigns();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+window.runCampaign = async (id, name) => {
+  try {
+    await apiPost(`/api/campaigns/${id}/run`, {});
+    toast(`Manually triggered campaign ${name}`);
+    setTimeout(loadCampaigns, 2000);
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+window.deleteCampaign = async (id) => {
+  if (!confirm('Are you sure you want to delete this campaign?')) return;
+  try {
+    await apiDel(`/api/campaigns/${id}`);
+    toast('Campaign deleted');
+    loadCampaigns();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+// --- Agent Profiles ---
+function loadToolsCheckboxes() {
+  const container = $('ap-tool-checkboxes');
+  container.innerHTML = '';
+  TOOLS_DEFINITIONS.forEach(t => {
+    container.innerHTML += `
+      <label style="font-size:0.85rem">
+        <input type="checkbox" name="ap-tools" value="${t.name}" checked />
+        <strong>${t.name}</strong> — ${t.desc}
+      </label>
+    `;
+  });
+}
+
+async function loadAgentProfiles() {
+  try {
+    const list = await api('/api/agent-profiles');
+    const tbody = $('agent-profiles-table').querySelector('tbody');
+    tbody.innerHTML = '';
+
+    // Populate selects across dashboard
+    const selects = [ $('sc-agent-profile'), $('bc-agent-profile'), $('camp-agent-profile') ];
+    selects.forEach(sel => {
+      if (sel) {
+        const firstOpt = sel.options[0];
+        sel.innerHTML = '';
+        sel.appendChild(firstOpt);
+      }
+    });
+
+    list.forEach(p => {
+      const isDef = p.is_default ? '★ Yes' : 'No';
+      const tools = JSON.parse(p.enabled_tools || '[]');
+      const toolsString = tools.length ? tools.join(', ') : 'All';
+      
+      tbody.innerHTML += `
+        <tr>
+          <td><strong>${p.name}</strong></td>
+          <td>${p.voice}</td>
+          <td>${p.model}</td>
+          <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${toolsString}</td>
+          <td><span class="badge ${p.is_default ? 'badge-success' : 'badge-sec'}">${isDef}</span></td>
+          <td>
+            <div style="display:flex; gap:0.25rem">
+              <button class="btn btn-sec btn-sm" onclick="editAgentProfile('${p.id}')">✏️ Edit</button>
+              <button class="btn btn-sec btn-sm" onclick="setDefaultAgentProfile('${p.id}')">★ Default</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteAgentProfile('${p.id}')">🗑️ Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+
+      selects.forEach(sel => {
+        if (sel) sel.innerHTML += `<option value="${p.id}">${p.name} (${p.voice})</option>`;
+      });
+    });
+  } catch (err) {
+    console.error('Agent profiles list err:', err);
+  }
+}
+
+async function saveAgentProfile(e) {
+  e.preventDefault();
+  const id = $('ap-id').value;
+  const name = $('ap-name').value;
+  const voice = $('ap-voice').value;
+  const model = $('ap-model').value;
+  const system_prompt = $('ap-prompt').value;
+  const is_default = $('ap-default').checked;
+
+  const tools = [];
+  document.querySelectorAll('input[name="ap-tools"]:checked').forEach(c => tools.push(c.value));
+  const enabled_tools = JSON.stringify(tools);
+
+  try {
+    if (id) {
+      await apiPut(`/api/agent-profiles/${id}`, { name, voice, model, system_prompt, enabled_tools, is_default });
+      toast('Agent profile updated successfully!');
+    } else {
+      await apiPost('/api/agent-profiles', { name, voice, model, system_prompt, enabled_tools, is_default });
+      toast('New agent profile created!');
+    }
+    resetAgentForm();
+    loadAgentProfiles();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function editAgentProfile(id) {
+  try {
+    const p = await api(`/api/agent-profiles/${id}`);
+    $('ap-id').value = p.id;
+    $('ap-name').value = p.name;
+    $('ap-voice').value = p.voice;
+    $('ap-model').value = p.model;
+    $('ap-prompt').value = p.system_prompt || '';
+    $('ap-default').checked = p.is_default === 1;
+    $('agent-form-title').innerText = 'Edit Agent Profile';
+
+    const tools = JSON.parse(p.enabled_tools || '[]');
+    document.querySelectorAll('input[name="ap-tools"]').forEach(c => {
+      c.checked = tools.includes(c.value);
+    });
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+async function setDefaultAgentProfile(id) {
+  try {
+    await apiPost(`/api/agent-profiles/${id}/set-default`);
+    toast('Default profile changed!');
+    loadAgentProfiles();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+async function deleteAgentProfile(id) {
+  if (!confirm('Are you sure you want to delete this profile?')) return;
+  try {
+    await apiDel(`/api/agent-profiles/${id}`);
+    toast('Profile deleted');
+    loadAgentProfiles();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+function resetAgentForm() {
+  $('ap-id').value = '';
+  $('ap-name').value = '';
+  $('ap-prompt').value = '';
+  $('ap-default').checked = false;
+  $('agent-form-title').innerText = 'Create Agent Profile';
+  document.querySelectorAll('input[name="ap-tools"]').forEach(c => c.checked = true);
+}
+
+// --- Prompt Editor ---
+async function loadPrompt() {
+  try {
+    const data = await api('/api/prompt');
+    $('global-prompt-editor').value = data.prompt;
+    $('prompt-char-count').innerText = `${data.prompt.length} characters`;
+  } catch (err) { console.error(err); }
+}
+
+async function savePrompt() {
+  try {
+    const prompt = $('global-prompt-editor').value;
+    await apiPost('/api/prompt', { prompt });
+    toast('Global system prompt saved!');
+    loadPrompt();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+async function resetPrompt() {
+  if (!confirm('Reset the global prompt back to standard Olivia template spec?')) return;
+  try {
+    await apiDel('/api/prompt');
+    toast('Global prompt reset successfully.');
+    loadPrompt();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+// --- Appointments ---
+async function loadAppointments(date='') {
+  try {
+    const list = await api(`/api/appointments${date ? '?date='+date : ''}`);
+    const tbody = $('appointments-table').querySelector('tbody');
+    tbody.innerHTML = '';
+    list.forEach(a => {
+      const statusBadge = a.status === 'booked' ? `<span class="badge badge-success">Booked</span>` : `<span class="badge badge-danger">Cancelled</span>`;
+      const cancelAction = a.status === 'booked' ? `<button class="btn btn-danger btn-sm" onclick="cancelAppointment('${a.id}')">Cancel</button>` : '—';
+      
+      tbody.innerHTML += `
+        <tr>
+          <td><strong>${a.name}</strong></td>
+          <td>${a.phone}</td>
+          <td>${a.date}</td>
+          <td>${a.time} CST</td>
+          <td>${a.service}</td>
+          <td>${statusBadge}</td>
+          <td>${cancelAction}</td>
+        </tr>
+      `;
+    });
+  } catch (err) { console.error(err); }
+}
+
+async function cancelAppointment(id) {
+  if (!confirm('Are you sure you want to cancel this booking?')) return;
+  try {
+    await apiDel(`/api/appointments/${id}`);
+    toast('Appointment cancelled');
+    loadAppointments($('appt-date-filter').value);
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+// --- Call logs ---
+async function loadCalls(page=1) {
+  try {
+    const list = await api(`/api/calls?page=${page}&limit=20`);
+    const tbody = $('calls-table').querySelector('tbody');
+    tbody.innerHTML = '';
+    list.forEach(c => {
+      const outcomeBadge = c.outcome === 'booked' ? `<span class="badge badge-success">Booked</span>` :
+                            c.outcome === 'not_interested' ? `<span class="badge badge-danger">No Interest</span>` :
+                            `<span class="badge badge-info">${c.outcome}</span>`;
+      const recordingLink = c.recording_url ? `<a href="${c.recording_url}" target="_blank" style="color:var(--accent2); text-decoration:none">🔊 Play (S3)</a>` : '—';
+      const notes = c.notes || 'Click to write notes...';
+
+      tbody.innerHTML += `
+        <tr>
+          <td>${c.phone_number}</td>
+          <td>${c.lead_name || '—'}</td>
+          <td>${outcomeBadge}</td>
+          <td>${c.duration_seconds || 0}s</td>
+          <td>${new Date(c.timestamp).toLocaleString()}</td>
+          <td>${recordingLink}</td>
+          <td>
+            <div class="notes-edit" onclick="editNotes('${c.id}', this)">${notes}</div>
+          </td>
+        </tr>
+      `;
+    });
+
+    // Pagination render
+    const pag = $('calls-pagination');
+    pag.innerHTML = `
+      <button class="btn btn-sec btn-sm" onclick="loadCalls(${page-1})" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
+      <span style="color:var(--text2)">Page ${page}</span>
+      <button class="btn btn-sec btn-sm" onclick="loadCalls(${page+1})" ${list.length < 20 ? 'disabled' : ''}>Next →</button>
+    `;
+  } catch (err) { console.error(err); }
+}
+
+async function editNotes(callId, el) {
+  const current = el.innerText === 'Click to write notes...' ? '' : el.innerText;
+  const newNotes = prompt('Edit call notes:', current);
+  if (newNotes === null) return;
+  try {
+    await apiPatch(`/api/calls/${callId}/notes`, { notes: newNotes });
+    el.innerText = newNotes || 'Click to write notes...';
+    toast('Notes saved!');
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+// --- CRM ---
+async function loadCRM() {
+  try {
+    const resp = await api('/api/crm');
+    const tbody = $('crm-table').querySelector('tbody');
+    tbody.innerHTML = '';
+    resp.data.forEach(c => {
+      tbody.innerHTML += `
+        <tr onclick="loadContactDetail('${c.phone_number}')" style="cursor:pointer">
+          <td><strong>${c.lead_name || 'Prospect'}</strong></td>
+          <td>${c.phone_number}</td>
+          <td>${c.total_calls}</td>
+          <td><span class="badge ${c.booked > 0 ? 'badge-success' : 'badge-sec'}">${c.booked > 0 ? 'Yes' : 'No'}</span></td>
+          <td>${new Date(c.last_call).toLocaleString()}</td>
+          <td><span class="badge badge-info">${c.last_outcome || '—'}</span></td>
+        </tr>
+      `;
+    });
+  } catch (err) { console.error(err); }
+}
+
+async function loadContactDetail(phone) {
+  $('crm-phone-hdr').innerText = phone;
+  $('crm-detail-block').style.display = 'block';
+  
+  const memoriesWrap = $('crm-memories');
+  memoriesWrap.innerHTML = '<em>Loading remembered facts...</em>';
+  
+  const callsWrap = $('crm-calls-history');
+  callsWrap.innerHTML = '<em>Loading call log history...</em>';
+
+  try {
+    // Load historical call logs
+    const callResp = await api(`/api/crm/calls?phone=${encodeURIComponent(phone)}`);
+    let table = `<table><thead><tr><th>Date</th><th>Outcome</th><th>Duration</th><th>Notes</th></tr></thead><tbody>`;
+    let bulletList = '';
+    
+    callResp.data.forEach(c => {
+      table += `<tr><td>${new Date(c.timestamp).toLocaleString()}</td><td>${c.outcome}</td><td>${c.duration_seconds}s</td><td>${c.notes || '—'}</td></tr>`;
+      if (c.notes) bulletList += `<li>${c.notes}</li>`;
+    });
+    table += `</tbody></table>`;
+    callsWrap.innerHTML = table;
+    
+    // Fallback/Simulated Memories display (collates notes and details remembered via LLM remember_details)
+    memoriesWrap.innerHTML = bulletList ? `<ul style="margin-left:1.5rem">${bulletList}</ul>` : 'No custom insights remembered about this lead yet.';
+  } catch (err) {
+    memoriesWrap.innerHTML = 'Failed to load details.';
+  }
+}
+
+// --- Settings ---
+function loadSettings() {
+  api('/api/settings').then(data => {
+    currentSettings = data;
+    for (let k in data) {
+      const el = $(`set-${k}`);
+      if (el) {
+        if (data[k].configured) {
+          el.value = data[k].value || '';
+          el.placeholder = '•••••••• (Configured)';
+        } else {
+          el.value = '';
+        }
+      }
+    }
+  }).catch(err => console.error(err));
+}
+
+function saveGroup(groupName) {
+  let fields = [];
+  if (groupName === 'livekit') fields = ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'];
+  else if (groupName === 'gemini') fields = ['GOOGLE_API_KEY', 'GEMINI_MODEL', 'GEMINI_TTS_VOICE'];
+  else if (groupName === 's3') fields = ['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_ENDPOINT_URL', 'S3_REGION', 'S3_BUCKET'];
+  else if (groupName === 'vobiz') fields = ['VOBIZ_SIP_DOMAIN', 'VOBIZ_USERNAME', 'VOBIZ_PASSWORD', 'VOBIZ_OUTBOUND_NUMBER', 'OUTBOUND_TRUNK_ID', 'DEFAULT_TRANSFER_NUMBER'];
+  else if (groupName === 'twilio') fields = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER'];
+  else if (groupName === 'calcom') fields = ['CALCOM_API_KEY', 'CALCOM_EVENT_TYPE_ID', 'CALCOM_TIMEZONE'];
+
+  const payload = {};
+  fields.forEach(f => {
+    const val = $(`set-${f}`).value;
+    if (val !== '') payload[f] = val;
+  });
+
+  apiPost('/api/settings', { settings: payload })
+    .then(r => {
+      toast(`${groupName.toUpperCase()} credentials saved successfully!`);
+      loadSettings();
+    }).catch(err => toast(err.message, 'err'));
+}
+
+async function createSIPTrunk() {
+  toast('Sending SIP Outbound Trunk creation request to LiveKit...');
+  try {
+    const resp = await apiPost('/api/setup/trunk', {});
+    toast(`Outbound SIP Trunk created successfully! ID: ${resp.trunk_id}`);
+    loadSettings();
+  } catch (err) {
+    toast(`Trunk setup failed: ${err.message || err}`, 'err');
+  }
+}
+
+// --- Logs panel ---
+async function loadLogs() {
+  const lvl = $('log-level-filter').value;
+  const src = $('log-source-filter').value;
+  
+  let query = '';
+  if (lvl) query += `&level=${lvl}`;
+  if (src) query += `&source=${src}`;
+
+  try {
+    const list = await api(`/api/logs?limit=200${query}`);
+    const container = $('log-container');
+    container.innerHTML = '';
+    if (!list.length) {
+      container.innerHTML = '<em>No logs found</em>';
+      return;
+    }
+    list.forEach(entry => {
+      container.innerHTML += `
+        <div class="log-entry ${entry.level}">
+          <span class="log-ts">[${entry.timestamp.substring(11, 19)}]</span>
+          <span class="log-lvl">${entry.level}</span>
+          <span><strong>${entry.source}:</strong> ${entry.message} ${entry.detail ? ' — ' + entry.detail : ''}</span>
+        </div>
+      `;
+    });
+  } catch (err) { console.error(err); }
+}
+
+function toggleLogAuto() {
+  autoRefreshLogs = !autoRefreshLogs;
+  $('btn-log-auto').innerText = autoRefreshLogs ? 'Pause Auto-Refresh' : 'Resume Auto-Refresh';
+}
+
+async function clearLogs() {
+  if (!confirm('Clear all historical error/info event logs from Supabase?')) return;
+  try {
+    await apiDel('/api/logs');
+    toast('Event logs database cleared');
+    loadLogs();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+function init() {
+  // Populate voices in settings dropdown
+  const vSelect = $('set-GEMINI_TTS_VOICE');
+  const femaleVoices = ['Aoede', 'Achernar', 'Autonoe', 'Callirrhoe', 'Despina', 'Erinome', 'Gacrux', 'Kore', 'Laomedeia', 'Leda', 'Pulcherrima', 'Sulafat', 'Vindemiatrix', 'Zephyr'];
+  const maleVoices = ['Achird', 'Algenib', 'Algieba', 'Alnilam', 'Charon', 'Enceladus', 'Fenrir', 'Iapetus', 'Orus', 'Perseus', 'Puck', 'Rasalgethi', 'Sadachbia', 'Sadaltager', 'Schedar', 'Umbriel', 'Zubenelgenubi'];
+  
+  let optHtml = `<optgroup label="Female Voices">`;
+  femaleVoices.forEach(v => optHtml += `<option value="${v}">${v}</option>`);
+  optHtml += `</optgroup><optgroup label="Male Voices">`;
+  maleVoices.forEach(v => optHtml += `<option value="${v}">${v}</option>`);
+  optHtml += `</optgroup>`;
+  vSelect.innerHTML = optHtml;
+
+  loadStats();
+  loadLiveConfig();
+  loadAgentProfiles();
+  loadToolsCheckboxes();
+
+  // Polling logs
+  logsInterval = setInterval(() => {
+    if (autoRefreshLogs && $('panel-logs').classList.contains('active')) {
+      loadLogs();
+    }
+  }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
