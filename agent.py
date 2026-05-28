@@ -245,6 +245,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     is_agent_speaking = False
     is_agent_thinking = False
     is_terminated = False
+    retry_attempt_count = 0
     
     # Text-based timestamps for detailed logs
     last_user_speak_time_log = "Never"
@@ -456,7 +457,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(ev):
-        nonlocal last_activity_time
+        nonlocal last_activity_time, retry_attempt_count
         last_activity_time = time.time()
         
         if ev.is_final:
@@ -465,13 +466,54 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             if user_speech_start_time > 0.0:
                 stt_latency = finalize_time - user_speech_start_time
             
-            logger.info(f"📝 Final Transcript: '{ev.transcript}' (STT Latency: {stt_latency:.2f}s)")
+            text = ev.transcript.strip()
+            logger.info(f"📝 Final Transcript: '{text}' (STT Latency: {stt_latency:.2f}s)")
             
-            # Check for rejection phrases
-            text = ev.transcript.lower()
-            rejection_phrases = ["not interested", "no thanks", "stop calling", "goodbye", "not now", "remove me", "busy"]
-            if any(p in text for p in rejection_phrases):
+            # Classification Logic
+            text_clean = text.lower().strip()
+            
+            # Hard rejection check
+            hard_rejection_phrases = [
+                "stop calling", "remove me", "take me off list", "don't call again", 
+                "do not call", "hang up", "no means no", "leave me alone", 
+                "take me off your", "put me on your do not call"
+            ]
+            
+            is_hard = any(p in text_clean for p in hard_rejection_phrases)
+            if "goodbye" in text_clean or "bye" in text_clean:
+                if any(p in text_clean for p in ["not interested", "no thanks", "stop", "no"]):
+                    is_hard = True
+                    
+            if is_hard:
+                logger.warning(f"🚨 Objection detected! Type: hard_rejection | Transcript: '{text}'")
+                logger.warning("   • Retry Attempt Count: N/A (Hard rejection bypasses retries)")
+                logger.warning("   • Final Rejection Confirmed: True")
+                logger.warning("   • Hangup Trigger Reason: Explicit do-not-call or aggressive hard rejection")
                 asyncio.create_task(handle_rejection_hangup())
+                return
+                
+            # Soft objection check
+            soft_objection_phrases = [
+                "not interested", "why would i need", "already have something", "we already have",
+                "we're good", "were good", "too expensive", "busy right now", "send info", "send me info",
+                "maybe later", "already using someone", "not looking currently", "no thanks", "not now",
+                "no thank you", "busy", "don't need it", "dont need it", "not looking"
+            ]
+            
+            is_soft = any(p in text_clean for p in soft_objection_phrases)
+            if is_soft:
+                if retry_attempt_count == 0:
+                    retry_attempt_count = 1
+                    logger.info(f"🛡️ Objection detected! Type: soft_objection | Transcript: '{text}'")
+                    logger.info("   • Retry Attempt Count: 0 -> 1 (Soft objection - allowing one intelligent recovery reframe)")
+                    logger.info("   • Final Rejection Confirmed: False")
+                    logger.info("   • Hangup Trigger Reason: N/A (Letting Gemini handle recovery)")
+                else:
+                    logger.warning(f"🚨 Objection detected! Type: soft_objection | Transcript: '{text}'")
+                    logger.warning(f"   • Retry Attempt Count: {retry_attempt_count} (Limit reached - no further retries)")
+                    logger.warning("   • Final Rejection Confirmed: True")
+                    logger.warning("   • Hangup Trigger Reason: Repeated objection/rejection after reframe attempt")
+                    asyncio.create_task(handle_rejection_hangup())
 
     @session.on("error")
     def on_session_error(ev):
