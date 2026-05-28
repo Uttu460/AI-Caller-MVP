@@ -33,6 +33,7 @@ class AppointmentTools(llm.ToolContext):
         self._call_start_time = time.time()
         self._sip_domain = os.getenv("VOBIZ_SIP_DOMAIN", "")
         self.recording_url: Optional[str] = None
+        self.booking_successful = False
         super().__init__(tools=[])
 
     def build_tool_list(self, enabled: list) -> list:
@@ -72,6 +73,7 @@ class AppointmentTools(llm.ToolContext):
         """
         try:
             booking_id = await insert_appointment(name, phone, date, time, service)
+            self.booking_successful = True
             return f"Confirmed! Booking ID: {booking_id}. See you on {date} at {time} for {service}."
         except Exception as exc:
             return "Technical issue saving the booking. Our team will confirm shortly."
@@ -94,6 +96,10 @@ class AppointmentTools(llm.ToolContext):
             logger.error("Failed to log call: %s", exc)
         try:
             await self.ctx.room.disconnect()
+        except Exception:
+            pass
+        try:
+            self.ctx.shutdown()
         except Exception:
             pass
         return "Call ended."

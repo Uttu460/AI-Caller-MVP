@@ -95,11 +95,11 @@ def _build_session(tools: list, system_prompt: str) -> AgentSession:
         sliding_window=_gt.SlidingWindow(target_tokens=12800),
     )
 
-    # 3. VAD tuning — 2 second silence threshold, low sensitivity
+    # 3. VAD tuning — aggressive silence threshold and fast turn detection
     realtime_input_config = _gt.RealtimeInputConfig(
         automatic_activity_detection=_gt.AutomaticActivityDetection(
-            end_of_speech_sensitivity=_gt.EndSensitivity.END_SENSITIVITY_LOW,
-            silence_duration_ms=2000,
+            end_of_speech_sensitivity=_gt.EndSensitivity.END_SENSITIVITY_HIGH,
+            silence_duration_ms=800,
             prefix_padding_ms=200,
         ),
     )
@@ -120,6 +120,12 @@ def _build_session(tools: list, system_prompt: str) -> AgentSession:
         llm=realtime_model,
         vad=vad,
         tools=tools,
+        min_endpointing_delay=0.5,
+        max_endpointing_delay=1.0,
+        allow_interruptions=True,
+        min_interruption_duration=0.2,
+        false_interruption_timeout=0.3,
+        agent_false_interruption_timeout=0.3,
     )
 
 
@@ -220,6 +226,134 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     await session.start(**_session_kwargs)
     await _log("info", "Agent session started — AI ready, generating greeting")
+
+    # ── Timings & Silence Tracking ───────────────────────────────────────────
+    import time
+    last_activity_time = time.time()
+    user_speech_start_time = 0.0
+    user_speech_end_time = 0.0
+    thinking_start_time = 0.0
+    speaking_start_time = 0.0
+
+    async def handle_rejection_hangup():
+        await _log("info", "Rejection phrase detected — triggering polite exit & immediate hangup")
+        try:
+            # 1. Interrupt any current speech
+            session.interrupt()
+            
+            # 2. Say a polite goodbye
+            handle = session.say("No worries, sorry for the trouble. Have a great day!", allow_interruptions=False)
+            
+            # 3. Wait for the goodbye to finish playing
+            await handle.wait_for_playout()
+        except Exception as e:
+            await _log("warning", f"Polite goodbye playout failed: {e}")
+            await asyncio.sleep(2.0)
+            
+        # 4. End the call cleanly
+        try:
+            await tool_ctx.end_call(outcome="not_interested", reason="Prospect requested do not call or hung up")
+        except Exception:
+            pass
+
+    async def handle_session_error(ev):
+        error_msg = getattr(ev.error, "message", str(ev.error))
+        is_recoverable = getattr(ev.error, "recoverable", True)
+        await _log("error", f"Session error from {ev.source}: {error_msg} (recoverable={is_recoverable})")
+        
+        if not is_recoverable:
+            try:
+                session.interrupt()
+                handle = session.say("I'm so sorry, my line seems to be breaking up a bit. Let me call you right back.", allow_interruptions=False)
+                await handle.wait_for_playout()
+            except Exception:
+                await asyncio.sleep(2.0)
+            try:
+                await tool_ctx.end_call(outcome="no_answer", reason=f"Unrecoverable session error: {error_msg}")
+            except Exception:
+                pass
+
+    # ── Silence Monitor Task ──────────────────────────────────────────────────
+    async def silence_monitor_task():
+        nonlocal last_activity_time
+        while True:
+            await asyncio.sleep(1.0)
+            elapsed = time.time() - last_activity_time
+            if elapsed > 8.0:
+                await _log("warning", f"Silence detected for {int(elapsed)}s (>8s) — hanging up call")
+                try:
+                    await tool_ctx.end_call(outcome="no_answer", reason="8s silence timeout")
+                except Exception:
+                    pass
+                break
+
+    # Start silence monitor task in background
+    silence_monitor = asyncio.create_task(silence_monitor_task())
+
+    # ── Register Session Events ───────────────────────────────────────────────
+    @session.on("user_state_changed")
+    def on_user_state_changed(ev):
+        nonlocal user_speech_start_time, user_speech_end_time, last_activity_time
+        last_activity_time = time.time()
+        
+        state_str = str(ev.new_state).lower()
+        if "speaking" in state_str:
+            user_speech_start_time = time.time()
+            logger.info("🎙️ User started speaking")
+        elif "listening" in state_str:
+            user_speech_end_time = time.time()
+            logger.info("🎙️ User stopped speaking")
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        nonlocal thinking_start_time, speaking_start_time, last_activity_time
+        last_activity_time = time.time()
+        
+        state_str = str(ev.new_state).lower()
+        if "thinking" in state_str:
+            thinking_start_time = time.time()
+            logger.info("🧠 Agent state: THINKING (Gemini generation started)")
+        elif "speaking" in state_str:
+            speaking_start_time = time.time()
+            logger.info("🗣️ Agent state: SPEAKING (TTS playout started)")
+            
+            # Compute latencies
+            now = time.time()
+            if thinking_start_time > 0.0:
+                gemini_tts_latency = now - thinking_start_time
+                logger.info(f"⏱️ Gemini + TTS Playback Latency: {gemini_tts_latency:.2f}s")
+            if user_speech_end_time > 0.0:
+                total_latency = now - user_speech_end_time
+                logger.info(f"⏱️ Total Response Latency (end of user speech to playout): {total_latency:.2f}s")
+                
+        elif "listening" in state_str or "idle" in state_str:
+            logger.info("👂 Agent state: LISTENING / IDLE")
+            # If booking is successful and agent finishes speaking, hang up immediately!
+            if getattr(tool_ctx, "booking_successful", False):
+                asyncio.create_task(tool_ctx.end_call(outcome="booked", reason="demo booked successfully"))
+
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(ev):
+        nonlocal last_activity_time
+        last_activity_time = time.time()
+        
+        if ev.is_final:
+            finalize_time = time.time()
+            stt_latency = 0.0
+            if user_speech_start_time > 0.0:
+                stt_latency = finalize_time - user_speech_start_time
+            
+            logger.info(f"📝 Final Transcript: '{ev.transcript}' (STT Latency: {stt_latency:.2f}s)")
+            
+            # Check for rejection phrases
+            text = ev.transcript.lower()
+            rejection_phrases = ["not interested", "no thanks", "stop calling", "goodbye", "not now", "remove me", "busy"]
+            if any(p in text for p in rejection_phrases):
+                asyncio.create_task(handle_rejection_hangup())
+
+    @session.on("error")
+    def on_session_error(ev):
+        asyncio.create_task(handle_session_error(ev))
 
     # ── Optional S3 recording ────────────────────────────────────────────────
     if phone_number:
